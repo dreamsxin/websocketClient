@@ -139,10 +139,10 @@ static ANBF_t *_recv_frame()
     uint64_t frame_length = 0;
     uint16_t length_data = 0;
     uint32_t frame_mask = 0;
-    uint8_t *payload = NULL;
     uint8_t length_bits = 0;
     uint8_t frame_header[2] = {0};
-    recv(ctx.fd, (char *) &frame_header, 2, 0);
+	char *payload = NULL;
+	recv(ctx.fd, (char *) &frame_header, 2, 0);
     b1 = frame_header[0];
     b2 = frame_header[1];
     length_bits = b2 & 0x7f;
@@ -173,8 +173,11 @@ static ANBF_t *_recv_frame()
         recv(ctx.fd, (char *) &frame_mask, 4, 0);
     }
 
-    payload = (char *) malloc((uint32_t) frame_length);
-    recv(ctx.fd, (char *) payload, (uint32_t) frame_length, 0);
+    if (frame_length)
+    {
+        payload = (char *) malloc((uint32_t) frame_length);
+        recv(ctx.fd, (char *) payload, (uint32_t) frame_length, 0);
+    }
     if (has_mask)
     {
         _ANBFmask(frame_mask, payload, (uint32_t) frame_length);
@@ -218,6 +221,7 @@ int sendCloseing(uint16_t status, const char *reason)
 
 int recvData(void *buff, int len)
 {
+    int data_len = 0;
     ANBF_t *frame = _recv_frame();
     if (!frame)
     {
@@ -244,24 +248,23 @@ int recvData(void *buff, int len)
 
         if (frame->fin)
         {
-            int data_len = ctx.cont_data_size > len ? len : ctx.cont_data_size;
+            data_len = ctx.cont_data_size > len ? len : ctx.cont_data_size;
             memcpy(buff, ctx.cont_data, data_len);
             ctx.cont_data = NULL;
             ctx.cont_data_size = 0;
-            return data_len;
         }
     }
     else if (frame->opcode == OPCODE_CLOSE)
     {
         sendCloseing(STATUS_NORMAL, "");
-        return 0;
     }
     else if (frame->opcode == OPCODE_PING)
     {
         sendPong("", 0);
-        return 0;
     }
 
+    free(frame);
+    return data_len;
 }
 
 int sendUtf8Data(void *data, int len)
