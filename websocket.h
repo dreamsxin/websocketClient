@@ -2,7 +2,7 @@
  * File:   websocket.h
  * Author: sundq
  *
- * Created on 2014年4月21日, 上午10:26
+ * Created on 2014-4-1, 10:26
  */
 
 #ifndef WEBSOCKET_H
@@ -13,16 +13,8 @@ extern "C"
 {
 #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <string.h>  
-#include<sys/types.h>
-#include<sys/socket.h>
-#include<netinet/in.h>//struct sockaddr_in
-#include<arpa/inet.h>//inet_ntoa
-
+#include "util.h"
+    
 typedef struct
 {
     char scheme[8];
@@ -72,21 +64,27 @@ typedef struct
     int rsv2;
     int rsv3;
     int mask;
-    opcode_t opcode;
-    void *data;
+    int opcode;
+    char *data;
     uint64_t length;
 } ANBF_t;
 
 typedef struct
 {
-    unsigned int fd;
-    char *_recv_buff;
-    uint32_t _recv_buff_offset;
-    char *_cont_data;
-    uint32_t _cont_data_size;
+    uint32_t fd;
+    char *recv_buff;
+    char *cont_data;
+    uint32_t cont_data_size;
 
 } wsContext_t;
 
+int recvData(void *buff, int len);
+int sendBinary(void *data, int len);
+int sendUtf8Data(void *data, int len);
+int sendCloseing(uint16_t status, const char *reason);
+int sendPing(void *payload, int len);
+int sendPong(void *payload, int len);
+int wsCreateConnection(const char *url);
 
 #ifdef	__cplusplus
 }

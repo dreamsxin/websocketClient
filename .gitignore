@@ -23,3 +23,8 @@
 *.hex
 Makefile
 nbproject/*
+/main.c
+/*.filters
+/*.sdf
+/*.sln
+/*.vcxproj

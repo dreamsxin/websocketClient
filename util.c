@@ -1,6 +1,6 @@
 #include "util.h"
 
-static int _addr_binary_set_port(struct sockaddr_storage *in, in_port_t port)
+static int _addr_binary_set_port(struct sockaddr_storage *in, uint16_t port)
 {
     if (in->ss_family == AF_INET)
     {
@@ -22,6 +22,8 @@ static int _addr_binary_set_port(struct sockaddr_storage *in, in_port_t port)
 
 static int _get_addr_by_hostname(int domain, int socktype, const char *hostname, uint16_t port, struct sockaddr_storage *out, uint32_t *size)
 {
+    int iret = -1;
+    char sport[16] = {0};
     struct addrinfo hints = {0};
     struct addrinfo *result = NULL;
     hints.ai_family = domain; /* Allow IPv4 or IPv6 */
@@ -29,16 +31,17 @@ static int _get_addr_by_hostname(int domain, int socktype, const char *hostname,
     hints.ai_flags = AI_ALL | AI_CANONNAME | AI_PASSIVE;
     hints.ai_protocol = 0;
 
-    int iret = getaddrinfo(hostname, NULL, &hints, &result);
+    snprintf(sport, 16, "%d", (int) port);
+    iret = getaddrinfo(hostname, sport, &hints, &result);
     if (iret != 0)
     {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(iret));
         return -1;
     }
     else
     {
         memcpy(out, result->ai_addr, result->ai_addrlen);
         *size = result->ai_addrlen;
-        _addr_binary_set_port(out, htons(port));
     }
     freeaddrinfo(result);
     return iret;
@@ -68,6 +71,8 @@ int ut_connect(const char *hostname, uint16_t port)
     }
 }
 
+#ifndef _WIN32
+
 uint64_t ntohll(uint64_t val)
 {
     if (__BYTE_ORDER == __LITTLE_ENDIAN)
@@ -91,3 +96,4 @@ uint64_t htonll(uint64_t val)
         return val;
     }
 }
+#endif
