@@ -224,11 +224,14 @@ static ANBF_t *_recv_frame(int32_t fd)
         }
     }
 
-    payload = (char *) malloc((int32_t) frame_length);
-    iret = _recv_restrict(fd, payload, (int32_t) frame_length);
-    if (iret < 0)
+    if (frame_length > 0)
     {
-        goto failed;
+        payload = (char *) malloc((int32_t) frame_length);
+        iret = _recv_restrict(fd, payload, (int32_t) frame_length);
+        if (iret < 0)
+        {
+            goto failed;
+        }
     }
 
     if (has_mask)
@@ -278,55 +281,65 @@ int32_t sendCloseing(wsContext_t *ctx, uint16_t status, const char *reason)
 int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
 {
     int data_len = 0;
-    ANBF_t *frame = _recv_frame(ctx->fd);
-    if (!frame)
-    {
-        goto failed;
-    }
+    ANBF_t *frame = NULL;
 
-    if (frame->opcode == OPCODE_TEXT || frame->opcode == OPCODE_BINARY || frame->opcode == OPCODE_CONT)
+    while (1)
     {
-        if (frame->opcode == OPCODE_CONT && NULL == ctx->cont_data)
+        frame = _recv_frame(ctx->fd);
+        if (!frame)
         {
             goto failed;
         }
-        else if (ctx->cont_data)
+
+        if (frame->opcode == OPCODE_TEXT || frame->opcode == OPCODE_BINARY || frame->opcode == OPCODE_CONT)
         {
-            ctx->cont_data = (char *) realloc(ctx->cont_data, ctx->cont_data_size + (uint32_t) frame->length);
-            memcpy(ctx->cont_data + ctx->cont_data_size, frame->data, (uint32_t) frame->length);
-            ctx->cont_data_size += (uint32_t) frame->length;
-            free(frame->data);
+            if (frame->opcode == OPCODE_CONT && NULL == ctx->cont_data)
+            {
+                goto failed;
+            }
+            else if (ctx->cont_data)
+            {
+                ctx->cont_data = (char *) realloc(ctx->cont_data, ctx->cont_data_size + (uint32_t) frame->length);
+                memcpy(ctx->cont_data + ctx->cont_data_size, frame->data, (uint32_t) frame->length);
+                ctx->cont_data_size += (uint32_t) frame->length;
+                free(frame->data);
+            }
+            else
+            {
+                ctx->cont_data = frame->data;
+                ctx->cont_data_size = (uint32_t) frame->length;
+            }
+
+            if (frame->fin)
+            {
+                data_len = ctx->cont_data_size > len ? len : ctx->cont_data_size;
+                memcpy(buff, ctx->cont_data, data_len);
+                free(ctx->cont_data);
+                ctx->cont_data = NULL;
+                ctx->cont_data_size = 0;
+                free(frame);
+                return data_len;
+            }
+            free(frame);
+        }
+        else if (frame->opcode == OPCODE_CLOSE)
+        {
+            free(frame);
+            sendCloseing(ctx, STATUS_NORMAL, "");
+            close(ctx->fd);
+            goto failed;
+        }
+        else if (frame->opcode == OPCODE_PING)
+        {
+            free(frame);
+            sendPong(ctx, "", 0);
         }
         else
         {
-            ctx->cont_data = frame->data;
-            ctx->cont_data_size = (uint32_t) frame->length;
-        }
-
-        if (frame->fin)
-        {
-            data_len = ctx->cont_data_size > len ? len : ctx->cont_data_size;
-            memcpy(buff, ctx->cont_data, data_len);
-            free(ctx->cont_data);
-            ctx->cont_data = NULL;
-            ctx->cont_data_size = 0;
+            free(frame);
+            goto failed;
         }
     }
-    else if (frame->opcode == OPCODE_CLOSE)
-    {
-        sendCloseing(ctx, STATUS_NORMAL, "");
-    }
-    else if (frame->opcode == OPCODE_PING)
-    {
-        sendPong(ctx, "", 0);
-    }
-    else
-    {
-        goto failed;
-    }
-
-    free(frame);
-    return data_len;
 
 failed:
     return -1;
@@ -344,9 +357,7 @@ int32_t sendBinary(wsContext_t *ctx, void *data, int32_t len)
 
 int32_t wsCreateConnection(wsContext_t *ctx, const char *url)
 {
-    url_t purl = {
-        {0}
-    };
+    url_t purl = {0};
     _parse_url(url, &purl);
     ctx->fd = ut_connect(purl.hostname, purl.port);
     _handshake(ctx->fd, purl.hostname, purl.port, purl.path);
@@ -359,7 +370,6 @@ wsContext_t *wsContextNew(wsContext_t *ctx)
     if (!ctx)
     {
         ctx = (wsContext_t *) malloc(sizeof (wsContext_t));
-
     }
     memset(ctx, 0, sizeof (wsContext_t));
 
@@ -368,6 +378,7 @@ wsContext_t *wsContextNew(wsContext_t *ctx)
 
 int32_t wsContextFree(wsContext_t *ctx)
 {
+    close(ctx->fd);
     free(ctx);
     return 0;
 }
