@@ -1,7 +1,5 @@
 #include "websocket.h"
 
-static wsContext_t ctx;
-
 static url_t *_parse_url(const char *url, url_t *ret)
 {
     char buff[256] = {0};
@@ -52,8 +50,7 @@ static int32_t _validate_headers(int32_t fd)
 static int32_t _handshake(int32_t fd, const char *host, unsigned short port, const char *resource)
 {
     int offset = 0;
-    char *header_str = malloc(512);
-    memset(header_str, 0, 512);
+    char header_str[512] = {0};
     offset += sprintf(header_str + offset, "GET %s HTTP/1.1\r\n", resource);
     offset += sprintf(header_str + offset, "Upgrade: websocket\r\n");
     offset += sprintf(header_str + offset, "Connection: Upgrade\r\n");
@@ -230,6 +227,7 @@ static ANBF_t *_recv_frame(int32_t fd)
         iret = _recv_restrict(fd, payload, (int32_t) frame_length);
         if (iret < 0)
         {
+            free(payload);
             goto failed;
         }
     }
@@ -318,13 +316,13 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
                 ctx->cont_data = NULL;
                 ctx->cont_data_size = 0;
                 free(frame);
+                frame = NULL;
                 return data_len;
             }
             free(frame);
         }
         else if (frame->opcode == OPCODE_CLOSE)
         {
-            free(frame);
             sendCloseing(ctx, STATUS_NORMAL, "");
             close(ctx->fd);
             goto failed;
@@ -332,16 +330,19 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
         else if (frame->opcode == OPCODE_PING)
         {
             free(frame);
+            frame = NULL;
             sendPong(ctx, "", 0);
         }
         else
         {
-            free(frame);
             goto failed;
         }
     }
 
 failed:
+    free(frame->data);
+    free(frame);
+    frame = NULL;
     return -1;
 }
 
