@@ -16,32 +16,40 @@ static url_t *_parse_url(const char *url, url_t *ret)
     return ret;
 }
 
-static const char *_recv_line(char *buff)
+static int32_t _recv_line(int32_t fd, char *buff)
 {
-    int i = 0;
+    int32_t i = 0;
+    int32_t iret = 0;
     char c = 0;
     while ('\n' != c)
     {
-        recv(ctx.fd, &c, 1, 0);
+        iret = recv(fd, &c, 1, 0);
+        if (iret < 0)
+        {
+            return iret;
+        }
         buff[i++] = c;
     }
 
-    return buff;
+    return i - 1;
 }
 
-static int _validate_headers()
+static int32_t _validate_headers(int32_t fd)
 {
     char buff[256] = {0};
     while (strcmp(buff, "\r\n") != 0)
     {
         memset(buff, 0, 256);
-        _recv_line(buff);
+        if (_recv_line(fd, buff) < 0)
+        {
+            return -1;
+        }
     }
 
     return 0;
 }
 
-static int _handshake(const char *host, unsigned short port, const char *resource)
+static int32_t _handshake(int32_t fd, const char *host, unsigned short port, const char *resource)
 {
     int offset = 0;
     char *header_str = malloc(512);
@@ -53,8 +61,8 @@ static int _handshake(const char *host, unsigned short port, const char *resourc
     offset += sprintf(header_str + offset, "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n");
     offset += sprintf(header_str + offset, "Sec-WebSocket-Version: 13\r\n\r\n");
 
-    send(ctx.fd, header_str, offset, 0);
-    return _validate_headers();
+    send(fd, header_str, offset, 0);
+    return _validate_headers(fd);
 }
 
 static ANBF_t *_create_frame(int fin, int rsv1, int rsv2, int rsv3, int opcode, int has_mask, void *data, int len)
@@ -73,7 +81,7 @@ static ANBF_t *_create_frame(int fin, int rsv1, int rsv2, int rsv3, int opcode, 
     return frame;
 }
 
-static void *_format_frame(ANBF_t *frame, int *size)
+static void *_format_frame(ANBF_t *frame, int32_t *size)
 {
     int offset = 0;
     char *frame_header = NULL;
@@ -121,9 +129,9 @@ static void *_format_frame(ANBF_t *frame, int *size)
     return frame_header;
 }
 
-static void *_ANBFmask(uint32_t mask_key, void *data, uint32_t len)
+static void *_ANBFmask(uint32_t mask_key, void *data, int32_t len)
 {
-    uint32_t i = 0;
+    int32_t i = 0;
     uint8_t *_m = (uint8_t *) & mask_key;
     uint8_t *_d = (uint8_t *) data;
     for (; i < len; i++)
@@ -133,18 +141,28 @@ static void *_ANBFmask(uint32_t mask_key, void *data, uint32_t len)
     return _d;
 }
 
-static uint32_t _recv_restrict(void *buff, uint32_t size)
+static int32_t _recv_restrict(int32_t fd, void *buff, int32_t size)
 {
-    int offset = 0;
+    int32_t offset = 0;
+    int iret = 0;
     while (offset < size)
     {
-        offset += recv(ctx.fd, ((char *) buff) + offset, (uint32_t) (size - offset), 0);
+        iret = recv(fd, ((char *) buff) + offset, (int32_t) (size - offset), 0);
+        if (iret > 0)
+        {
+            offset += iret;
+        }
+        else
+        {
+            offset = -1;
+            break;
+        }
     }
 
     return offset;
 }
 
-static ANBF_t *_recv_frame()
+static ANBF_t *_recv_frame(int32_t fd)
 {
     uint8_t b1, b2, fin, rsv1, rsv2, rsv3, opcode, has_mask;
     uint64_t frame_length = 0;
@@ -153,9 +171,15 @@ static ANBF_t *_recv_frame()
     uint32_t frame_mask = 0;
     uint8_t length_bits = 0;
     uint8_t frame_header[2] = {0};
+    int32_t iret = 0;
     char *payload = NULL;
-    
-    _recv_restrict(&frame_header, 2);
+
+    iret = _recv_restrict(fd, &frame_header, 2);
+    if (iret < 0)
+    {
+        goto failed;
+    }
+
     b1 = frame_header[0];
     b2 = frame_header[1];
     length_bits = b2 & 0x7f;
@@ -168,12 +192,22 @@ static ANBF_t *_recv_frame()
 
     if (length_bits == 0x7e)
     {
-        _recv_restrict(&length_data_16, 2);
+        iret = _recv_restrict(fd, &length_data_16, 2);
+        if (iret < 0)
+        {
+            goto failed;
+        }
+
         frame_length = ntohs(length_data_16);
     }
     else if (length_bits == 0x7f)
     {
-        _recv_restrict(&length_data_64, 8);
+        iret = _recv_restrict(fd, &length_data_64, 8);
+        if (iret < 0)
+        {
+            goto failed;
+        }
+
         frame_length = ntohll(length_data_64);
     }
     else
@@ -183,11 +217,19 @@ static ANBF_t *_recv_frame()
 
     if (has_mask)
     {
-        _recv_restrict(&frame_mask, 4);
+        iret = _recv_restrict(fd, &frame_mask, 4);
+        if (iret < 0)
+        {
+            goto failed;
+        }
     }
 
-    payload = (char *) malloc((uint32_t) frame_length);
-    _recv_restrict(payload, frame_length);
+    payload = (char *) malloc((int32_t) frame_length);
+    iret = _recv_restrict(fd, payload, (int32_t) frame_length);
+    if (iret < 0)
+    {
+        goto failed;
+    }
 
     if (has_mask)
     {
@@ -195,31 +237,34 @@ static ANBF_t *_recv_frame()
     }
 
     return _create_frame(fin, rsv1, rsv2, rsv3, opcode, has_mask, payload, (uint32_t) frame_length);
+
+failed:
+    return NULL;
 }
 
-static int _send(void *payload, int len, int opcode)
+static int32_t _send(int32_t fd, void *payload, int32_t len, int32_t opcode)
 {
-    int length = 0;
+    int32_t length = 0;
     ANBF_t *frame = _create_frame(1, 0, 0, 0, opcode, 0, payload, len);
     char *data = (char *) _format_frame(frame, &length);
-    int iret = send(ctx.fd, data, length, 0);
+    int32_t iret = send(fd, data, length, 0);
     free(frame);
     free(data);
 
     return iret;
 }
 
-int sendPing(void *payload, int len)
+int32_t sendPing(wsContext_t *ctx, void *payload, int32_t len)
 {
-    return _send(payload, len, OPCODE_PING);
+    return _send(ctx->fd, payload, len, OPCODE_PING);
 }
 
-int sendPong(void *payload, int len)
+int32_t sendPong(wsContext_t *ctx, void *payload, int32_t len)
 {
-    return _send(payload, len, OPCODE_PONG);
+    return _send(ctx->fd, payload, len, OPCODE_PONG);
 }
 
-int sendCloseing(uint16_t status, const char *reason)
+int32_t sendCloseing(wsContext_t *ctx, uint16_t status, const char *reason)
 {
     char *p = NULL;
     int len = 0;
@@ -227,73 +272,102 @@ int sendCloseing(uint16_t status, const char *reason)
     status = htons(status);
     p = (char *) &status;
     len = snprintf(payload, 64, "\\x%02x\\x%02x%s", p[0], p[1], reason);
-    return _send(payload, len, OPCODE_CLOSE);
+    return _send(ctx->fd, payload, len, OPCODE_CLOSE);
 }
 
-int recvData(void *buff, int len)
+int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
 {
     int data_len = 0;
-    ANBF_t *frame = _recv_frame();
+    ANBF_t *frame = _recv_frame(ctx->fd);
     if (!frame)
     {
-        return 0;
+        goto failed;
     }
 
     if (frame->opcode == OPCODE_TEXT || frame->opcode == OPCODE_BINARY || frame->opcode == OPCODE_CONT)
     {
-        if (frame->opcode == OPCODE_CONT && NULL == ctx.cont_data)
+        if (frame->opcode == OPCODE_CONT && NULL == ctx->cont_data)
         {
-            return 0;
+            goto failed;
         }
-        else if (ctx.cont_data)
+        else if (ctx->cont_data)
         {
-            ctx.cont_data = realloc(ctx.cont_data, ctx.cont_data_size + (uint32_t) frame->length);
-            memcpy(ctx.cont_data + ctx.cont_data_size, frame->data, (uint32_t) frame->length);
-            ctx.cont_data_size += (uint32_t) frame->length;
+            ctx->cont_data = (char *) realloc(ctx->cont_data, ctx->cont_data_size + (uint32_t) frame->length);
+            memcpy(ctx->cont_data + ctx->cont_data_size, frame->data, (uint32_t) frame->length);
+            ctx->cont_data_size += (uint32_t) frame->length;
             free(frame->data);
         }
         else
         {
-            ctx.cont_data = frame->data;
-            ctx.cont_data_size = (uint32_t) frame->length;
+            ctx->cont_data = frame->data;
+            ctx->cont_data_size = (uint32_t) frame->length;
         }
 
         if (frame->fin)
         {
-            data_len = ctx.cont_data_size > len ? len : ctx.cont_data_size;
-            memcpy(buff, ctx.cont_data, data_len);
-            free(ctx.cont_data);
-            ctx.cont_data = NULL;
-            ctx.cont_data_size = 0;
+            data_len = ctx->cont_data_size > len ? len : ctx->cont_data_size;
+            memcpy(buff, ctx->cont_data, data_len);
+            free(ctx->cont_data);
+            ctx->cont_data = NULL;
+            ctx->cont_data_size = 0;
         }
     }
     else if (frame->opcode == OPCODE_CLOSE)
     {
-        sendCloseing(STATUS_NORMAL, "");
+        sendCloseing(ctx, STATUS_NORMAL, "");
     }
     else if (frame->opcode == OPCODE_PING)
     {
-        sendPong("", 0);
+        sendPong(ctx, "", 0);
+    }
+    else
+    {
+        goto failed;
     }
 
     free(frame);
     return data_len;
+
+failed:
+    return -1;
 }
 
-int sendUtf8Data(void *data, int len)
+int32_t sendUtf8Data(wsContext_t *ctx, void *data, int32_t len)
 {
-    return _send(data, len, OPCODE_TEXT);
+    return _send(ctx->fd, data, len, OPCODE_TEXT);
 }
 
-int sendBinary(void *data, int len)
+int32_t sendBinary(wsContext_t *ctx, void *data, int32_t len)
 {
-    return _send(data, len, OPCODE_BINARY);
+    return _send(ctx->fd, data, len, OPCODE_BINARY);
 }
 
-int wsCreateConnection(const char *url)
+int32_t wsCreateConnection(wsContext_t *ctx, const char *url)
 {
-    url_t purl = {0};
+    url_t purl = {
+        {0}
+    };
     _parse_url(url, &purl);
-    ctx.fd = ut_connect(purl.hostname, purl.port);
-    _handshake(purl.hostname, purl.port, purl.path);
+    ctx->fd = ut_connect(purl.hostname, purl.port);
+    _handshake(ctx->fd, purl.hostname, purl.port, purl.path);
+
+    return ctx->fd;
+}
+
+wsContext_t *wsContextNew(wsContext_t *ctx)
+{
+    if (!ctx)
+    {
+        ctx = (wsContext_t *) malloc(sizeof (wsContext_t));
+
+    }
+    memset(ctx, 0, sizeof (wsContext_t));
+
+    return ctx;
+}
+
+int32_t wsContextFree(wsContext_t *ctx)
+{
+    free(ctx);
+    return 0;
 }

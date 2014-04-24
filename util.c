@@ -1,26 +1,6 @@
 #include "util.h"
 
-static int _addr_binary_set_port(struct sockaddr_storage *in, uint16_t port)
-{
-    if (in->ss_family == AF_INET)
-    {
-        struct sockaddr_in *addr4 = (struct sockaddr_in *) in;
-        addr4->sin_port = port;
-    }
-    else if (in->ss_family == AF_INET6)
-    {
-        struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *) in;
-        addr6->sin6_port = port;
-    }
-    else
-    {
-        return -1;
-    }
-
-    return -1;
-}
-
-static int _get_addr_by_hostname(int domain, int socktype, const char *hostname, uint16_t port, struct sockaddr_storage *out, uint32_t *size)
+static int _get_addr_by_hostname(int32_t domain, int32_t socktype, const char *hostname, uint16_t port, struct sockaddr_storage *out, int32_t *size)
 {
     int iret = -1;
     char sport[16] = {0};
@@ -51,7 +31,7 @@ int ut_connect(const char *hostname, uint16_t port)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_storage addr_remote = {0};
-    uint32_t addr_len = 0;
+    int32_t addr_len = 0;
     int iret = _get_addr_by_hostname(AF_INET, SOCK_STREAM, hostname, port, &addr_remote, &addr_len);
     if (iret >= 0)
     {
