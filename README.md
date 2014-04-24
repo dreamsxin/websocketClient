@@ -13,6 +13,7 @@ a websocket client by C language
 
 int main()
 { 
+    char *str = "hello websocket\n";
     wsContext_t *ctx = NULL;
     ctx = wsContextNew(NULL);
     wsCreateConnection(ctx,"ws://10.0.0.150:1238/");

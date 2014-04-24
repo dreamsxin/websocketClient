@@ -174,7 +174,7 @@ static ANBF_t *_recv_frame(int32_t fd)
     iret = _recv_restrict(fd, &frame_header, 2);
     if (iret < 0)
     {
-        goto failed;
+        goto end;
     }
 
     b1 = frame_header[0];
@@ -192,7 +192,7 @@ static ANBF_t *_recv_frame(int32_t fd)
         iret = _recv_restrict(fd, &length_data_16, 2);
         if (iret < 0)
         {
-            goto failed;
+            goto end;
         }
 
         frame_length = ntohs(length_data_16);
@@ -202,7 +202,7 @@ static ANBF_t *_recv_frame(int32_t fd)
         iret = _recv_restrict(fd, &length_data_64, 8);
         if (iret < 0)
         {
-            goto failed;
+            goto end;
         }
 
         frame_length = ntohll(length_data_64);
@@ -217,7 +217,7 @@ static ANBF_t *_recv_frame(int32_t fd)
         iret = _recv_restrict(fd, &frame_mask, 4);
         if (iret < 0)
         {
-            goto failed;
+            goto end;
         }
     }
 
@@ -228,7 +228,7 @@ static ANBF_t *_recv_frame(int32_t fd)
         if (iret < 0)
         {
             free(payload);
-            goto failed;
+            goto end;
         }
     }
 
@@ -239,7 +239,7 @@ static ANBF_t *_recv_frame(int32_t fd)
 
     return _create_frame(fin, rsv1, rsv2, rsv3, opcode, has_mask, payload, (uint32_t) frame_length);
 
-failed:
+end:
     return NULL;
 }
 
@@ -278,7 +278,7 @@ int32_t sendCloseing(wsContext_t *ctx, uint16_t status, const char *reason)
 
 int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
 {
-    int data_len = 0;
+    int data_len = -1;
     ANBF_t *frame = NULL;
 
     while (1)
@@ -286,21 +286,22 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
         frame = _recv_frame(ctx->fd);
         if (!frame)
         {
-            goto failed;
+            goto end;
         }
 
         if (frame->opcode == OPCODE_TEXT || frame->opcode == OPCODE_BINARY || frame->opcode == OPCODE_CONT)
         {
             if (frame->opcode == OPCODE_CONT && NULL == ctx->cont_data)
             {
-                goto failed;
+                free(frame->data);
+                frame->data = NULL;
+                goto end;
             }
             else if (ctx->cont_data)
             {
                 ctx->cont_data = (char *) realloc(ctx->cont_data, ctx->cont_data_size + (uint32_t) frame->length);
                 memcpy(ctx->cont_data + ctx->cont_data_size, frame->data, (uint32_t) frame->length);
                 ctx->cont_data_size += (uint32_t) frame->length;
-                free(frame->data);
             }
             else
             {
@@ -312,38 +313,41 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
             {
                 data_len = ctx->cont_data_size > len ? len : ctx->cont_data_size;
                 memcpy(buff, ctx->cont_data, data_len);
-                free(ctx->cont_data);
-                ctx->cont_data = NULL;
-                ctx->cont_data_size = 0;
-                free(frame);
-                frame = NULL;
-                return data_len;
+                free(frame->data);
+                frame->data = NULL;
+                goto end;
             }
-            free(frame);
         }
         else if (frame->opcode == OPCODE_CLOSE)
         {
             sendCloseing(ctx, STATUS_NORMAL, "");
             close(ctx->fd);
-            goto failed;
+            free(frame->data);
+            frame->data = NULL;
+            goto end;
         }
         else if (frame->opcode == OPCODE_PING)
         {
-            free(frame);
-            frame = NULL;
             sendPong(ctx, "", 0);
         }
         else
         {
-            goto failed;
+            free(frame->data);
+            frame->data = NULL;
+            goto end;
         }
+
+        free(frame);
+        frame = NULL;
     }
 
-failed:
-    free(frame->data);
+end:
     free(frame);
     frame = NULL;
-    return -1;
+    free(ctx->cont_data);
+    ctx->cont_data = NULL;
+    ctx->cont_data_size = 0;
+    return data_len;
 }
 
 int32_t sendUtf8Data(wsContext_t *ctx, void *data, int32_t len)
