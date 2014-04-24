@@ -133,16 +133,29 @@ static void *_ANBFmask(uint32_t mask_key, void *data, uint32_t len)
     return _d;
 }
 
+static uint32_t _recv_restrict(void *buff, uint32_t size)
+{
+    int offset = 0;
+    while (offset < size)
+    {
+        offset += recv(ctx.fd, ((char *) buff) + offset, (uint32_t) (size - offset), 0);
+    }
+
+    return offset;
+}
+
 static ANBF_t *_recv_frame()
 {
     uint8_t b1, b2, fin, rsv1, rsv2, rsv3, opcode, has_mask;
     uint64_t frame_length = 0;
-    uint16_t length_data = 0;
+    uint16_t length_data_16 = 0;
+    uint64_t length_data_64 = 0;
     uint32_t frame_mask = 0;
     uint8_t length_bits = 0;
     uint8_t frame_header[2] = {0};
-	char *payload = NULL;
-	recv(ctx.fd, (char *) &frame_header, 2, 0);
+    char *payload = NULL;
+    
+    _recv_restrict(&frame_header, 2);
     b1 = frame_header[0];
     b2 = frame_header[1];
     length_bits = b2 & 0x7f;
@@ -155,13 +168,13 @@ static ANBF_t *_recv_frame()
 
     if (length_bits == 0x7e)
     {
-        recv(ctx.fd, (char *) &length_data, 2, 0);
-        frame_length = ntohs(length_data);
+        _recv_restrict(&length_data_16, 2);
+        frame_length = ntohs(length_data_16);
     }
     else if (length_bits == 0x7f)
     {
-        recv(ctx.fd, (char *) &length_data, 8, 0);
-        frame_length = ntohll(length_data);
+        _recv_restrict(&length_data_64, 8);
+        frame_length = ntohll(length_data_64);
     }
     else
     {
@@ -170,14 +183,12 @@ static ANBF_t *_recv_frame()
 
     if (has_mask)
     {
-        recv(ctx.fd, (char *) &frame_mask, 4, 0);
+        _recv_restrict(&frame_mask, 4);
     }
 
-    if (frame_length)
-    {
-        payload = (char *) malloc((uint32_t) frame_length);
-        recv(ctx.fd, (char *) payload, (uint32_t) frame_length, 0);
-    }
+    payload = (char *) malloc((uint32_t) frame_length);
+    _recv_restrict(payload, frame_length);
+
     if (has_mask)
     {
         _ANBFmask(frame_mask, payload, (uint32_t) frame_length);
@@ -237,8 +248,9 @@ int recvData(void *buff, int len)
         else if (ctx.cont_data)
         {
             ctx.cont_data = realloc(ctx.cont_data, ctx.cont_data_size + (uint32_t) frame->length);
+            memcpy(ctx.cont_data + ctx.cont_data_size, frame->data, (uint32_t) frame->length);
             ctx.cont_data_size += (uint32_t) frame->length;
-            memcpy(ctx.cont_data + (uint32_t) frame->length, frame->data, (uint32_t) frame->length);
+            free(frame->data);
         }
         else
         {
@@ -250,6 +262,7 @@ int recvData(void *buff, int len)
         {
             data_len = ctx.cont_data_size > len ? len : ctx.cont_data_size;
             memcpy(buff, ctx.cont_data, data_len);
+            free(ctx.cont_data);
             ctx.cont_data = NULL;
             ctx.cont_data_size = 0;
         }
