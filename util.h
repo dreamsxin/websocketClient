@@ -12,7 +12,6 @@
 extern "C"
 {
 #endif
-
 #ifdef _WIN32
 #if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
 #define _CRT_SECURE_NO_WARNINGS // _CRT_SECURE_NO_WARNINGS for sscanf errors in MSVC2013 Express
@@ -67,6 +66,7 @@ typedef unsigned __int64 uint64_t;
 #include<netinet/in.h>
 #include<arpa/inet.h>
 #include <netdb.h>
+#include <ctype.h>
 
 #ifndef INVALID_SOCKET
 #define INVALID_SOCKET (-1)
@@ -83,7 +83,19 @@ typedef unsigned __int64 uint64_t;
 uint64_t ntohll(uint64_t val);
 uint64_t htonll(uint64_t val);
 #endif
-int ut_connect(const char *hostname, uint16_t port);
+typedef struct 
+{
+    uint32_t state[5];
+    uint32_t count[2];
+    uint8_t  buffer[64];
+} SHA1_CTX;
+
+#define SHA1_DIGEST_SIZE 20
+
+int32_t ut_connect(const char *hostname, uint16_t port);
+uint8_t *sha1Buff(const void *buff,size_t lenth, uint8_t *out);
+uint8_t *base64_encode(uint8_t *bindata, int32_t inlen, uint8_t *out, int32_t *outlen);
+char *str2lower(char *str);
 
 #ifdef	__cplusplus
 }

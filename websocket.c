@@ -32,19 +32,59 @@ static int32_t _recv_line(int32_t fd, char *buff)
     return i - 1;
 }
 
-static int32_t _validate_headers(int32_t fd)
+static int32_t _validate_headers(int32_t fd, char *key)
 {
+    int32_t iret = 0;
     char buff[256] = {0};
+    uint32_t status = 0;
+    char value[256] = {0};
+    char result[256] = {0};
+    char header_k[256] = {0};
+    char header_v[256] = {0};
+    char base64str[256] = {0};
+    int32_t base64_len = 0;
+    uint8_t sha1[20] = {0};
+
+    if (_recv_line(fd, buff) < 0)
+    {
+        iret = -1;
+        goto end;
+    }
+
+    sscanf(buff, "%*s%d", &status);
+    if (status != 101)
+    {
+        iret = -1;
+        goto end;
+    }
+
     while (strcmp(buff, "\r\n") != 0)
     {
         memset(buff, 0, 256);
+        memset(header_k, 0, 256);
+        memset(header_v, 0, 256);
         if (_recv_line(fd, buff) < 0)
         {
-            return -1;
+            iret = -1;
+            goto end;
+        }
+        sscanf(buff, "%256s%256s", header_k, header_v);
+        if (strncmp(header_k, "Sec-WebSocket-Accept:", 256) == 0)
+        {
+            snprintf(result, 256, "%s", header_v);
         }
     }
+    snprintf(value, 256, "%s%s", key, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    sha1Buff(value, strlen(value), sha1);
+    base64_encode(sha1, 20, (uint8_t *) base64str, &base64_len);
+    if (strncmp(str2lower(base64str), str2lower(result), 256) != 0)
+    {
+        iret = -1;
+        goto end;
+    }
 
-    return 0;
+end:
+    return iret;
 }
 
 static int32_t _handshake(int32_t fd, const char *host, unsigned short port, const char *resource)
@@ -59,7 +99,7 @@ static int32_t _handshake(int32_t fd, const char *host, unsigned short port, con
     offset += sprintf(header_str + offset, "Sec-WebSocket-Version: 13\r\n\r\n");
 
     send(fd, header_str, offset, 0);
-    return _validate_headers(fd);
+    return _validate_headers(fd, "x3JJHMbDL1EzLkh9GBhXDw==");
 }
 
 static int32_t _create_frame(ANBF_t *frame, int fin, int rsv1, int rsv2, int rsv3, int opcode, int has_mask, void *data, int len)
@@ -244,9 +284,9 @@ end:
 static int32_t _send(int32_t fd, void *payload, int32_t len, int32_t opcode)
 {
     int32_t length = 0;
-	int32_t iret = 0;
+    int32_t iret = 0;
     ANBF_t frame = {0};
-	char *sendData = NULL;
+    char *sendData = NULL;
     _create_frame(&frame, 1, 0, 0, 0, opcode, 0, payload, len);
     sendData = (char *) _format_frame(&frame, &length);
     iret = send(fd, sendData, length, 0);
