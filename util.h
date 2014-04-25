@@ -40,7 +40,7 @@ typedef SOCKET socket_t;
 #ifndef snprintf
 #define snprintf _snprintf
 #endif
-#define close _close
+#define close closesocket
 #if _MSC_VER >=1600
 // vs2010 or later
 #include <stdint.h>

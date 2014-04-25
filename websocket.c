@@ -62,10 +62,8 @@ static int32_t _handshake(int32_t fd, const char *host, unsigned short port, con
     return _validate_headers(fd);
 }
 
-static ANBF_t *_create_frame(int fin, int rsv1, int rsv2, int rsv3, int opcode, int has_mask, void *data, int len)
+static int32_t _create_frame(ANBF_t *frame, int fin, int rsv1, int rsv2, int rsv3, int opcode, int has_mask, void *data, int len)
 {
-    ANBF_t *frame = malloc(sizeof (ANBF_t));
-
     frame->fin = fin;
     frame->rsv1 = rsv1;
     frame->rsv2 = rsv2;
@@ -75,7 +73,7 @@ static ANBF_t *_create_frame(int fin, int rsv1, int rsv2, int rsv3, int opcode, 
     frame->data = data;
     frame->length = len;
 
-    return frame;
+    return 0;
 }
 
 static void *_format_frame(ANBF_t *frame, int32_t *size)
@@ -159,7 +157,7 @@ static int32_t _recv_restrict(int32_t fd, void *buff, int32_t size)
     return offset;
 }
 
-static ANBF_t *_recv_frame(int32_t fd)
+static int32_t _recv_frame(int32_t fd, ANBF_t *frame)
 {
     uint8_t b1, b2, fin, rsv1, rsv2, rsv3, opcode, has_mask;
     uint64_t frame_length = 0;
@@ -237,20 +235,22 @@ static ANBF_t *_recv_frame(int32_t fd)
         _ANBFmask(frame_mask, payload, (uint32_t) frame_length);
     }
 
-    return _create_frame(fin, rsv1, rsv2, rsv3, opcode, has_mask, payload, (uint32_t) frame_length);
+    return _create_frame(frame, fin, rsv1, rsv2, rsv3, opcode, has_mask, payload, (uint32_t) frame_length);
 
 end:
-    return NULL;
+    return -1;
 }
 
 static int32_t _send(int32_t fd, void *payload, int32_t len, int32_t opcode)
 {
     int32_t length = 0;
-    ANBF_t *frame = _create_frame(1, 0, 0, 0, opcode, 0, payload, len);
-    char *data = (char *) _format_frame(frame, &length);
-    int32_t iret = send(fd, data, length, 0);
-    free(frame);
-    free(data);
+	int32_t iret = 0;
+    ANBF_t frame = {0};
+	char *sendData = NULL;
+    _create_frame(&frame, 1, 0, 0, 0, opcode, 0, payload, len);
+    sendData = (char *) _format_frame(&frame, &length);
+    iret = send(fd, sendData, length, 0);
+    _free(sendData);
 
     return iret;
 }
@@ -279,12 +279,15 @@ int32_t sendCloseing(wsContext_t *ctx, uint16_t status, const char *reason)
 int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
 {
     int data_len = -1;
-    ANBF_t *frame = NULL;
+    int iret = -1;
+    ANBF_t _frame = {0};
+    ANBF_t *frame = &_frame;
 
     while (1)
     {
-        frame = _recv_frame(ctx->fd);
-        if (!frame)
+        memset(frame, 0, sizeof (frame));
+        iret = _recv_frame(ctx->fd, frame);
+        if (iret < 0)
         {
             goto end;
         }
@@ -293,8 +296,6 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
         {
             if (frame->opcode == OPCODE_CONT && NULL == ctx->cont_data)
             {
-                free(frame->data);
-                frame->data = NULL;
                 goto end;
             }
             else if (ctx->cont_data)
@@ -302,6 +303,7 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
                 ctx->cont_data = (char *) realloc(ctx->cont_data, ctx->cont_data_size + (uint32_t) frame->length);
                 memcpy(ctx->cont_data + ctx->cont_data_size, frame->data, (uint32_t) frame->length);
                 ctx->cont_data_size += (uint32_t) frame->length;
+                _free(frame->data);
             }
             else
             {
@@ -313,8 +315,6 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
             {
                 data_len = ctx->cont_data_size > len ? len : ctx->cont_data_size;
                 memcpy(buff, ctx->cont_data, data_len);
-                free(frame->data);
-                frame->data = NULL;
                 goto end;
             }
         }
@@ -322,8 +322,6 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
         {
             sendCloseing(ctx, STATUS_NORMAL, "");
             close(ctx->fd);
-            free(frame->data);
-            frame->data = NULL;
             goto end;
         }
         else if (frame->opcode == OPCODE_PING)
@@ -332,20 +330,13 @@ int32_t recvData(wsContext_t *ctx, void *buff, int32_t len)
         }
         else
         {
-            free(frame->data);
-            frame->data = NULL;
             goto end;
         }
-
-        free(frame);
-        frame = NULL;
     }
 
 end:
-    free(frame);
-    frame = NULL;
-    free(ctx->cont_data);
-    ctx->cont_data = NULL;
+    _free(frame->data);
+    _free(ctx->cont_data);
     ctx->cont_data_size = 0;
     return data_len;
 }

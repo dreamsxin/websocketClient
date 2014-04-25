@@ -15,6 +15,8 @@ extern "C"
 
 #include "util.h"
     
+#define _free(p) do{free(p);p=NULL;}while(0)
+    
 typedef struct
 {
     char scheme[8];
