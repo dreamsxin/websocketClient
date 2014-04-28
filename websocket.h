@@ -87,7 +87,7 @@ int32_t sendCloseing(wsContext_t *ctx,uint16_t status, const char *reason);
 int32_t sendPing(wsContext_t *ctx,void *payload, int32_t len);
 int32_t sendPong(wsContext_t *ctx,void *payload, int32_t len);
 int32_t wsCreateConnection(wsContext_t  *ctx, const char *url);
-wsContext_t *wsContextNew(wsContext_t *ctx);
+wsContext_t *wsContextNew();
 int32_t wsContextFree(wsContext_t *ctx);
 
 #ifdef	__cplusplus

@@ -61,10 +61,6 @@ uint8_t *base64_encode(uint8_t *bindata, int32_t inlen, uint8_t *out, int32_t *o
 
     if (bits_collected >= 6)
     {
-        if (NULL == *out)
-        {
-            free(_out);
-        }
         return NULL;
     }
 

@@ -401,12 +401,9 @@ int32_t wsCreateConnection(wsContext_t *ctx, const char *url)
     return ctx->fd;
 }
 
-wsContext_t *wsContextNew(wsContext_t *ctx)
+wsContext_t *wsContextNew()
 {
-    if (!ctx)
-    {
-        ctx = (wsContext_t *) malloc(sizeof (wsContext_t));
-    }
+    wsContext_t *ctx = (wsContext_t *) malloc(sizeof (wsContext_t));
     memset(ctx, 0, sizeof (wsContext_t));
 
     return ctx;
