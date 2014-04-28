@@ -30,7 +30,8 @@ int main()
         {
            break;
         }
-    }    
+    }
+    wsContextFree(ctx);
     return 0;
 }
 ```
