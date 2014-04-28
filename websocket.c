@@ -3,10 +3,10 @@
 static url_t *_parse_url(const char *url, url_t *ret)
 {
     char buff[256] = {0};
-    int iret = sscanf(url, "%[^://]%*c%*c%*c%[^:]%*c%d/%[^?]%*c%s", ret->scheme, ret->hostname, &ret->port, ret->path, ret->query);
+    int iret = sscanf(url, "%7[^://]%*c%*c%*c%127[^:]%*c%d/%1023[^?]%*c%1023s", ret->scheme, ret->hostname, &ret->port, ret->path, ret->query);
     if (2 == iret)
     {
-        iret = sscanf(url, "%[^://]%*c%*c%*c%[^/]/%[^?]%*c%s", ret->scheme, ret->hostname, ret->path, ret->query);
+        iret = sscanf(url, "%7[^://]%*c%*c%*c%127[^/]/%1023[^?]%*c%1023s", ret->scheme, ret->hostname, ret->path, ret->query);
         ret->port = 80;
     }
     sprintf(buff, "/%s", ret->path);
